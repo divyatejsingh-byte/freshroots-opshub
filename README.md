@@ -47,6 +47,30 @@ Then restart `npm run dev`. To rebuild a database from scratch: run `supabase/sc
 
 Access: the app has no sign-in. Anyone with the URL can view the data and change decisions and data fixes, because `/api/dataset` reads and writes Supabase with the secret key. Test sends of the digest are off in production (`ALLOW_MANUAL_DISPATCH`), and `/api/cron/*` requires `CRON_SECRET`.
 
+## Zoho Inventory
+
+Zoho Inventory is the system of record for stock, unit cost, unit price and open purchase orders. On **Data Gaps**, "Sync from Zoho" reads Zoho and fills those fields as fixes tagged `zoho`. Nothing is guessed:
+
+- SKUs match on an **exact SKU code** only (the item's SKU field in Zoho must equal the app's SKU id, e.g. `SKU001`). Unmatched SKUs are listed.
+- A value Zoho does not return, or returns as 0 / negative where that is meaningless, is skipped and warned about.
+- **Open POs** = ordered minus received on purchase orders with status open, issued or partially received. If Zoho has a PO in a status the app does not recognise, no open-PO quantity is imported at all (you enter it by hand).
+- Values you typed yourself are never overwritten by a sync. Supplier is never assigned from Zoho.
+
+Connect it:
+
+1. Create a Zoho Inventory account at zoho.com/inventory, using the data centre for your country (India = `.in`).
+2. Find your **Organization ID**: Zoho Inventory, Settings, Organization Profile.
+3. Open the API console for your data centre (https://api-console.zoho.in for India), choose **Add Client**, **Self Client**, and note the **Client ID** and **Client Secret**.
+4. In the Self Client's **Generate Code** tab use scope `ZohoInventory.items.READ,ZohoInventory.purchaseorders.READ,ZohoInventory.settings.READ`, time duration 10 minutes, and click Create. Copy the code.
+5. Within 10 minutes exchange it for a refresh token:
+   ```
+   curl -X POST "https://accounts.zoho.in/oauth/v2/token" -d grant_type=authorization_code -d client_id=<id> -d client_secret=<secret> -d code=<code>
+   ```
+   Keep the `refresh_token` from the response (it does not expire; the access token does, and the app refreshes it).
+6. Set `ZOHO_DC`, `ZOHO_ORG_ID`, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN` in `.env.local` and in Vercel, then restart / redeploy.
+
+Not built yet: pushing purchase orders to Zoho (needs the `ZohoInventory.purchaseorders.CREATE` scope and a real vendor list), and syncing vendors.
+
 ## Notifications and cron
 
 `vercel.json` schedules `/api/cron/dispatch-updates` at `30 1 * * 2,4` UTC (07:00 IST, Tue and Thu). Configuration is in `.env.example`.

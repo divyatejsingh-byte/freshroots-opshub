@@ -95,7 +95,7 @@ export async function loadRemote(): Promise<RemoteResult> {
       field: s(r.field) as FixField,
       value: r.value as DataFix["value"],
       note: s(r.note),
-      source: s(r.source) === "import" ? "import" : "planner",
+      source: s(r.source) === "import" ? "import" : s(r.source) === "zoho" ? "zoho" : "planner",
       at: s(r.fixed_at),
     };
     fixes[fixKey(fix.skuId, fix.field)] = fix;

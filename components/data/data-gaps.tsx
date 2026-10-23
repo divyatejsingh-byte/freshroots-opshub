@@ -11,6 +11,7 @@ import { fixKey, KNOWN_CATEGORIES, summarizeGaps } from "@/lib/data/quality";
 import { useDemandStore, useGlobalGaps, type FixInput } from "@/lib/store";
 import type { DataGap, FixField, Sku } from "@/lib/types";
 import { cn, formatDate } from "@/lib/utils";
+import { ZohoCard } from "./zoho-card";
 
 type Kind = "number" | "supplier" | "perishable" | "category" | "distributor";
 
@@ -126,6 +127,8 @@ export function DataGaps() {
           Nothing is assumed. Where a value is missing the SKU stays on hold until you supply or confirm it. Every change is saved with your reason.
         </p>
       </div>
+
+      <ZohoCard />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiTile label="SKUs on hold" value={`${summary.blockedSkus} / ${skus.length}`} hint="Cannot be approved yet" icon={AlertTriangle} tone={summary.blockedSkus ? "amber" : "emerald"} />
@@ -246,7 +249,7 @@ export function DataGaps() {
                                   </Button>
                                 )}
                                 {fix && (
-                                  <button title={`${fix.source === "import" ? "Imported" : "Entered"} ${formatDate(fix.at)}: ${fix.note}. Click to undo.`} onClick={() => removeFix(sku.id, c.field)} className="text-zinc-500 hover:text-amber-300">
+                                  <button title={`${fix.source === "zoho" ? "Synced from Zoho" : fix.source === "import" ? "Imported" : "Entered"} ${formatDate(fix.at)}: ${fix.note}. Click to undo.`} onClick={() => removeFix(sku.id, c.field)} className="text-zinc-500 hover:text-amber-300">
                                     <Undo2 className="h-3.5 w-3.5" />
                                   </button>
                                 )}
@@ -321,7 +324,7 @@ export function DataGaps() {
                   <span className="text-zinc-300">{f.field.startsWith("sales:") ? `Sales ${f.field.slice(6)}` : f.field}</span>
                   <span className="font-medium text-zinc-100">{String(f.value)}</span>
                   <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">“{f.note}”</span>
-                  <Badge tone={f.source === "import" ? "violet" : "indigo"}>{f.source}</Badge>
+                  <Badge tone={f.source === "zoho" ? "emerald" : f.source === "import" ? "violet" : "indigo"}>{f.source}</Badge>
                   <span className="text-xs text-zinc-600">{formatDate(f.at)}</span>
                 </li>
               ))}

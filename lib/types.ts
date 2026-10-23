@@ -70,7 +70,8 @@ export interface DataFix {
   /** number, string or boolean; "exclude" on a sales week drops that week from the averages */
   value: number | string | boolean;
   note: string;
-  source: "planner" | "import";
+  /** planner: a person typed it. import: a file upload. zoho: synced from Zoho Inventory. */
+  source: "planner" | "import" | "zoho";
   at: string;
 }
 
