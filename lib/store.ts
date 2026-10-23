@@ -24,6 +24,7 @@ import type {
   Sku,
   Supplier,
 } from "./types";
+import { toast } from "@/components/ui/toast";
 import { addDays, isoDate } from "./utils";
 
 const DEFAULT_SEED = 42;
@@ -47,6 +48,9 @@ interface DemandState {
   festival: FestivalConfig;
   ingests: IngestRecord[];
 
+  /** True once the dataset came from Supabase: decisions are then saved back */
+  remote: boolean;
+  hydrateRemote: () => Promise<{ source: string; error?: string }>;
   reseed: (seed?: number) => void;
   setQty: (skuId: string, qty: number) => void;
   approve: (skuId: string) => void;
@@ -79,6 +83,19 @@ function nextPoNumber(pos: PurchaseOrder[]): number {
 
 export const useDemandStore = create<DemandState>((set, get) => ({
   ...fresh(DEFAULT_SEED),
+
+  remote: false,
+
+  hydrateRemote: async () => {
+    const res = await fetch("/api/dataset", { cache: "no-store" });
+    if (!res.ok) return { source: "csv", error: `Dataset request failed (${res.status})` };
+    const json = (await res.json()) as { source: string; skus: Sku[]; distributors: Distributor[]; meta: DatasetMeta; decisions: Record<string, Decision>; error?: string };
+    if (json.source !== "supabase") return { source: json.source, error: json.error };
+    // Data first, then flip `remote`, so loading saved decisions does not trigger a save back
+    set({ skus: json.skus, distributors: json.distributors, meta: json.meta, decisions: json.decisions });
+    set({ remote: true });
+    return { source: "supabase" };
+  },
 
   reseed: (seed) => set(fresh(seed ?? get().seed + 1)),
 
@@ -221,3 +238,22 @@ export function useSavings(analyses: Analysis[]): Savings {
 }
 
 export type { PaymentStatus, ProcurementStatus };
+
+// Save planner decisions to Supabase (debounced) once the dataset came from there
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let warned = false;
+useDemandStore.subscribe((state, prev) => {
+  if (!state.remote || state.decisions === prev.decisions) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      const empty = Object.keys(state.decisions).length === 0;
+      const res = await fetch("/api/dataset", empty ? { method: "DELETE" } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decisions: useDemandStore.getState().decisions }) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      warned = false;
+    } catch (err) {
+      if (!warned) toast.warning("Could not save decisions to Supabase", err instanceof Error ? err.message : undefined);
+      warned = true;
+    }
+  }, 700);
+});

@@ -163,7 +163,7 @@ export function DemandStudio() {
           <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Demand Planning Studio</h1>
           <p className="text-sm text-zinc-500">Bi-weekly SKU heuristics, festival buffers and batch PO approvals.</p>
           <p className="mt-0.5 text-xs text-zinc-600">
-            Source files: stock as of {meta.stockAsOf} · sales {meta.salesFromWeek} to {meta.salesToWeek}
+            {meta.source === "supabase" ? "Source: Supabase" : "Source: bundled CSV files"} · stock as of {meta.stockAsOf} · sales {meta.salesFromWeek} to {meta.salesToWeek}
             {meta.assumedPrices > 0 && ` · unit costs and prices for ${meta.assumedPrices} SKUs are placeholders (data/sku_prices.csv)`}
           </p>
         </div>

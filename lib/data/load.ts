@@ -30,7 +30,10 @@ const CATEGORY_SUPPLIERS: Record<Category, SupplierCategory[]> = {
   Condiment: ["Raw Ingredients", "Spices", "Packaging Material"],
 };
 
+export type DataSource = "csv" | "supabase";
+
 export interface DatasetMeta {
+  source: DataSource;
   stockAsOf: string;
   salesFromWeek: string;
   salesToWeek: string;
@@ -58,16 +61,39 @@ function packSize(name: string): string {
  * Suppliers are not in the files, so each SKU is linked to a sample supplier by category.
  */
 export function loadDataset(suppliers: Supplier[]): Dataset {
-  const master = records(RAW.skuMaster);
-  const sales = records(RAW.weeklySales);
-  const inventory = records(RAW.currentInventory);
-  const distributors = records(RAW.distributorMaster).map<Distributor>((r) => ({
+  return buildDataset(
+    {
+      skuMaster: records(RAW.skuMaster),
+      weeklySales: records(RAW.weeklySales),
+      inventory: records(RAW.currentInventory),
+      distributors: records(RAW.distributorMaster),
+      prices: records(RAW.skuPrices),
+    },
+    suppliers,
+    "csv"
+  );
+}
+
+/** Source-agnostic rows, keyed by the CSV header names (Supabase rows are mapped into this shape) */
+export interface SourceRows {
+  skuMaster: Row[];
+  weeklySales: Row[];
+  inventory: Row[];
+  distributors: Row[];
+  prices: Row[];
+}
+
+export function buildDataset(rows: SourceRows, suppliers: Supplier[], source: DataSource): Dataset {
+  const master = rows.skuMaster;
+  const sales = rows.weeklySales;
+  const inventory = rows.inventory;
+  const distributors = rows.distributors.map<Distributor>((r) => ({
     id: r.Distributor_ID,
     name: r.Distributor_Name,
     region: r.Region,
     active: r.Status.toLowerCase() === "active",
   }));
-  const prices = new Map(records(RAW.skuPrices).map((r) => [r.SKU_ID, r]));
+  const prices = new Map(rows.prices.map((r) => [r.SKU_ID, r]));
 
   const weeks = [...new Set(sales.map((r) => r.Week))].sort();
   const last12 = weeks.slice(-12);
@@ -128,6 +154,7 @@ export function loadDataset(suppliers: Supplier[]): Dataset {
     skus,
     distributors,
     meta: {
+      source,
       stockAsOf,
       salesFromWeek: weeks[0] ?? "",
       salesToWeek: weeks[weeks.length - 1] ?? "",

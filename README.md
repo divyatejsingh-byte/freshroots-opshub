@@ -23,11 +23,22 @@ The app reads the CSVs in `data/` (`sku_master`, `weekly_sales`, `current_invent
 
 ## Supabase
 
-1. Create a Supabase project, then run `supabase/schema.sql` in its SQL editor.
-2. Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECRET_KEY`.
-3. `npm run seed:supabase` loads the CSVs into the tables.
+Project: `freshroots-opshub` (ref `ibjlkvxpwjaiwuzucvjq`, Singapore). The schema and your CSV data are already loaded.
 
-The app does not read from Supabase yet; it still loads from `data/`. Tables for decisions, suppliers and POs are ready for that switch.
+- **Reads:** with a key configured, the app loads SKUs, sales, stock and distributors from Supabase (header shows "Source: Supabase"). Without one it uses the bundled CSVs. If Supabase fails, it falls back and says so.
+- **Writes:** planner approvals, pauses, overrides and quantities save to the `decisions` table and come back on reload. POs and suppliers are not persisted yet.
+- **Server only:** the tables have row-level security on and no access for `anon` or `authenticated`. Only the secret key, used in route handlers (`app/api/dataset`), can read or write. It never reaches the browser.
+
+To connect: in the Supabase dashboard open Project Settings, API Keys, copy the secret key, and set in `.env.local`:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://ibjlkvxpwjaiwuzucvjq.supabase.co
+SUPABASE_SECRET_KEY=<secret key>
+```
+
+Then restart `npm run dev`. To rebuild a database from scratch: run `supabase/schema.sql`, then `npm run seed:sql` and run the generated `supabase/seed.sql` (or `npm run seed:supabase` with the key set).
+
+The app has no login yet. Add one before deploying publicly, because `/api/dataset` reads and writes with the secret key.
 
 ## Notifications and cron
 

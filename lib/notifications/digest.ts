@@ -8,7 +8,7 @@ import {
   FESTIVAL_SEGMENTS,
   isFastTrack,
 } from "../engine/heuristics";
-import { loadDataset } from "../data/load";
+import { loadServerDataset } from "../data/supabase";
 import { generatePurchaseOrders, generateSuppliers } from "../mockData";
 import type { Digest } from "./types";
 
@@ -29,12 +29,13 @@ function istDay(now: Date): string {
 
 /**
  * Builds the digest from the heuristics engine.
- * SKUs come from the uploaded files in /data; suppliers and PO history are sample data until a vendor source exists.
- * Planner approvals live in the browser, so "ready for approval" counts the rule-passed lane as it stands at run time.
+ * SKUs come from Supabase when configured (otherwise the bundled CSVs in /data); suppliers and PO history are sample data.
+ * "Ready for approval" excludes SKUs already approved or pushed, using the decisions saved in Supabase.
  */
-export function buildDigest(now = new Date()): Digest {
+export async function buildDigest(now = new Date()): Promise<Digest> {
   const suppliers = generateSuppliers(DATA_SEED);
-  const { skus } = loadDataset(suppliers);
+  const { dataset, decisions } = await loadServerDataset(suppliers);
+  const { skus } = dataset;
   const pos = generatePurchaseOrders(DATA_SEED, suppliers, skus);
   const festival = defaultFestivalConfig(now);
   const analyses = skus.map((s) => analyzeSku(s, festival));
@@ -42,7 +43,8 @@ export function buildDigest(now = new Date()): Digest {
 
   const critical = analyses.filter((a) => a.status === "critical");
   const overstock = analyses.filter((a) => a.status === "overstock");
-  const ready = analyses.filter(isFastTrack);
+  // Rule-passed SKUs the planner has not already approved or pushed
+  const ready = analyses.filter((a) => isFastTrack(a) && !(["approved", "submitted"] as string[]).includes(decisions[a.sku.id]?.state ?? ""));
 
   const topCritical = [...critical]
     .sort((a, b) => atRiskValue(b) - atRiskValue(a))

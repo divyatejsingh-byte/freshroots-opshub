@@ -4,6 +4,7 @@ import { BarChart3, BellRing, Home, Leaf, Truck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Toaster } from "@/components/ui/toast";
+import { DataBootstrap } from "./data-bootstrap";
 import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">{children}</main>
+      <DataBootstrap />
       <Toaster />
     </div>
   );

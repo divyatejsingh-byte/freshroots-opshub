@@ -11,7 +11,7 @@ export interface DispatchOptions {
 }
 
 export async function runDispatch({ trigger, send, channels = ["slack", "email"] }: DispatchOptions): Promise<DispatchLog> {
-  const summary = buildDigest();
+  const summary = await buildDigest();
   const at = new Date().toISOString();
 
   const jobs: Promise<DeliveryResult>[] = channels.map((channel) => {

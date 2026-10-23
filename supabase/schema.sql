@@ -91,3 +91,10 @@ alter table decisions        enable row level security;
 alter table suppliers        enable row level security;
 alter table purchase_orders  enable row level security;
 alter table po_lines         enable row level security;
+
+-- The project is created with "automatically expose new tables" off, so grant the server role explicitly.
+-- anon and authenticated get nothing: the browser never talks to these tables directly.
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+revoke all on all tables in schema public from anon, authenticated;
+alter default privileges in schema public revoke all on tables from anon, authenticated;

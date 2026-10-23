@@ -10,7 +10,8 @@
     "data": "node scripts/build-data.mjs",
     "predev": "npm run data",
     "prebuild": "npm run data",
-    "seed:supabase": "node scripts/seed-supabase.mjs"
+    "seed:supabase": "node scripts/seed-supabase.mjs",
+    "seed:sql": "node scripts/build-seed-sql.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -19,6 +20,7 @@
     "next": "^14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "server-only": "^0.0.1",
     "tailwind-merge": "^3.7.0",
     "zustand": "^5.0.16"
   },
