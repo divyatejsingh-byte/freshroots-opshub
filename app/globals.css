@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark palette (default): Tailwind's stock zinc and accent shades */
+:root {
+  color-scheme: dark;
+  --zinc-50: 250 250 250; --zinc-100: 244 244 245; --zinc-200: 228 228 231; --zinc-300: 212 212 216;
+  --zinc-400: 161 161 170; --zinc-500: 113 113 122; --zinc-600: 82 82 91; --zinc-700: 63 63 70;
+  --zinc-800: 39 39 42; --zinc-900: 24 24 27; --zinc-950: 9 9 11;
+  --indigo-100: 224 231 255; --indigo-200: 199 210 254; --indigo-300: 165 180 252; --indigo-400: 129 140 248;
+  --emerald-100: 209 250 229; --emerald-200: 167 243 208; --emerald-300: 110 231 183; --emerald-400: 52 211 153;
+  --amber-100: 254 243 199; --amber-200: 253 230 138; --amber-300: 252 211 77; --amber-400: 251 191 36;
+  --rose-100: 255 228 230; --rose-200: 254 205 211; --rose-300: 253 164 175; --rose-400: 251 113 133;
+  --violet-100: 237 233 254; --violet-200: 221 214 254; --violet-300: 196 181 253; --violet-400: 167 139 250;
+}
+
+/* Light palette: the zinc scale is mirrored and accent text shades are deepened for contrast */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --zinc-50: 9 9 11; --zinc-100: 24 24 27; --zinc-200: 39 39 42; --zinc-300: 63 63 70;
+  --zinc-400: 82 82 91; --zinc-500: 113 113 122; --zinc-600: 161 161 170; --zinc-700: 212 212 216;
+  --zinc-800: 228 228 231; --zinc-900: 244 244 245; --zinc-950: 250 250 250;
+  --indigo-100: 49 46 129; --indigo-200: 55 48 163; --indigo-300: 67 56 202; --indigo-400: 79 70 229;
+  --emerald-100: 6 78 59; --emerald-200: 6 95 70; --emerald-300: 4 120 87; --emerald-400: 5 150 105;
+  --amber-100: 120 53 15; --amber-200: 146 64 14; --amber-300: 180 83 9; --amber-400: 217 119 6;
+  --rose-100: 136 19 55; --rose-200: 159 18 57; --rose-300: 190 18 60; --rose-400: 225 29 72;
+  --violet-100: 76 29 149; --violet-200: 91 33 182; --violet-300: 109 40 217; --violet-400: 124 58 237;
+}
+
+:root[data-theme="light"] body {
+  background-image:
+    radial-gradient(900px 400px at 85% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(700px 300px at 0% 0%, rgba(139, 92, 246, 0.06), transparent 60%);
+}
+:root[data-theme="light"] .glow-card {
+  background-color: rgb(255 255 255 / 0.85);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -14px rgba(79, 70, 229, 0.22);
+}
+
+body {
+  @apply bg-zinc-950 text-zinc-200 antialiased;
+  font-feature-settings: "cv11", "ss01";
+  background-image:
+    radial-gradient(900px 400px at 85% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(700px 300px at 0% 0%, rgba(139, 92, 246, 0.08), transparent 60%);
+  background-attachment: fixed;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { @apply rounded-full bg-zinc-800; }
+::-webkit-scrollbar-thumb:hover { @apply bg-zinc-700; }
+
+input[type="range"] { @apply h-1.5 w-full cursor-pointer appearance-none rounded-full bg-zinc-800; }
+input[type="range"]::-webkit-slider-thumb {
+  @apply h-4 w-4 appearance-none rounded-full border-2 border-zinc-950 bg-indigo-400;
+  box-shadow: 0 0 0 1px rgb(129 140 248 / .6);
+}
+
+@layer components {
+  .glow-card {
+    @apply rounded-xl border border-zinc-800/80 bg-zinc-900/60 backdrop-blur-sm;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02) inset, 0 8px 30px -12px rgba(79, 70, 229, 0.18);
+  }
+  .th { @apply whitespace-nowrap px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-zinc-500; }
+  .td { @apply px-3 py-2 align-middle text-[13px]; }
+}
