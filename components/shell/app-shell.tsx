@@ -1,8 +1,9 @@
 "use client";
 
-import { BarChart3, BellRing, ClipboardEdit, Home, Leaf, Truck } from "lucide-react";
+import { BarChart3, BellRing, ClipboardEdit, Home, Leaf, LogOut, Truck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/toast";
 import { DataBootstrap } from "./data-bootstrap";
 import { ThemeToggle } from "./theme-toggle";
@@ -18,6 +19,22 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+
+  // The sign-in page stands alone: no navigation, no data loading
+  if (pathname === "/login") {
+    return (
+      <div className="min-h-screen px-4">
+        {children}
+        <Toaster />
+      </div>
+    );
+  }
+
+  const signOut = async () => {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.assign("/login");
+  };
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md">
@@ -50,6 +67,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="ml-auto flex items-center gap-2 text-xs text-zinc-500">
             <ThemeToggle />
+            <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sign out" title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </Button>
             <span className="grid h-6 w-6 place-items-center rounded-full bg-indigo-500/20 text-[10px] font-semibold text-indigo-300">RK</span>
           </div>
         </div>

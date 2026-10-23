@@ -45,7 +45,7 @@ SUPABASE_SECRET_KEY=<secret key>
 
 Then restart `npm run dev`. To rebuild a database from scratch: run `supabase/schema.sql`, then `supabase/migrations/002_data_gaps.sql` is already folded into the schema; run `npm run seed:sql` and run the generated `supabase/seed.sql` (or `npm run seed:supabase` with the key set).
 
-The app has no login yet. Add one before deploying publicly, because `/api/dataset` reads and writes with the secret key.
+Access: the app sits behind a shared password (`APP_PASSWORD`, sign-in page at `/login`, signed 7-day cookie). In production it refuses to serve without it. Changing the password signs everyone out. This is a stopgap, not per-user accounts. `/api/cron/*` is exempt and checks `CRON_SECRET` itself.
 
 ## Notifications and cron
 
