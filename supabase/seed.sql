@@ -8,21 +8,21 @@ insert into distributors (id, name, region, active) values
 on conflict (id) do update set name = excluded.name, region = excluded.region, active = excluded.active;
 
 insert into skus (id, name, category, perishable, reorder_qty, unit_of_measure, distributor_id, unit_cost, unit_price, price_source) values
-  ('SKU001', 'Freshroots Mango Drink 200ml', 'Beverage', false, 500, 'Units', 'DIST001', 14, 20, 'assumed'),
-  ('SKU002', 'Freshroots Oats Cookies 150g', 'Snack', false, 200, 'Units', 'DIST001', 32, 45, 'assumed'),
-  ('SKU003', 'Freshroots Brown Rice 1kg', 'Staple', false, 300, 'Units', 'DIST002', 77, 110, 'assumed'),
-  ('SKU004', 'Freshroots Almond Milk 500ml', 'Dairy Alt', true, 150, 'Units', 'DIST002', 112, 160, 'assumed'),
-  ('SKU005', 'Freshroots Mixed Nuts 100g', 'Snack', false, 150, 'Units', 'DIST003', 98, 140, 'assumed'),
-  ('SKU006', 'Freshroots Quinoa 500g', 'Staple', false, 100, 'Units', 'DIST003', 182, 260, 'assumed'),
-  ('SKU007', 'Freshroots Coconut Water 330ml', 'Beverage', true, 400, 'Units', 'DIST001', 42, 60, 'assumed'),
-  ('SKU008', 'Freshroots Granola Bar 40g', 'Snack', false, 300, 'Units', 'DIST002', 28, 40, 'assumed'),
-  ('SKU009', 'Freshroots Chia Seeds 200g', 'Staple', false, 80, 'Units', 'DIST003', 105, 150, 'assumed'),
-  ('SKU010', 'Freshroots Apple Cider Vinegar 500ml', 'Condiment', false, 60, 'Units', 'DIST004', 154, 220, 'assumed'),
-  ('SKU011', 'Freshroots Multigrain Bread 400g', 'Staple', true, 500, 'Units', 'DIST004', 39, 55, 'assumed'),
-  ('SKU012', 'Freshroots Herbal Tea 25 bags', 'Beverage', false, 150, 'Units', 'DIST004', 91, 130, 'assumed'),
-  ('SKU013', 'Freshroots Peanut Butter 300g', 'Condiment', false, 120, 'Units', 'DIST001', 123, 175, 'assumed'),
-  ('SKU014', 'Freshroots Dark Chocolate 80g', 'Snack', false, 200, 'Units', 'DIST002', 84, 120, 'assumed'),
-  ('SKU015', 'Freshroots Honey 500g', 'Condiment', false, 80, 'Units', 'DIST003', 196, 280, 'assumed')
+  ('SKU001', 'Freshroots Mango Drink 200ml', 'Beverage', false, 500, 'Units', 'DIST001', null, null, null),
+  ('SKU002', 'Freshroots Oats Cookies 150g', 'Snack', false, 200, 'Units', 'DIST001', null, null, null),
+  ('SKU003', 'Freshroots Brown Rice 1kg', 'Staple', false, 300, 'Units', 'DIST002', null, null, null),
+  ('SKU004', 'Freshroots Almond Milk 500ml', 'Dairy Alt', true, 150, 'Units', 'DIST002', null, null, null),
+  ('SKU005', 'Freshroots Mixed Nuts 100g', 'Snack', false, 150, 'Units', 'DIST003', null, null, null),
+  ('SKU006', 'Freshroots Quinoa 500g', 'Staple', false, 100, 'Units', 'DIST003', null, null, null),
+  ('SKU007', 'Freshroots Coconut Water 330ml', 'Beverage', true, 400, 'Units', 'DIST001', null, null, null),
+  ('SKU008', 'Freshroots Granola Bar 40g', 'Snack', false, 300, 'Units', 'DIST002', null, null, null),
+  ('SKU009', 'Freshroots Chia Seeds 200g', 'Staple', false, 80, 'Units', 'DIST003', null, null, null),
+  ('SKU010', 'Freshroots Apple Cider Vinegar 500ml', 'Condiment', false, 60, 'Units', 'DIST004', null, null, null),
+  ('SKU011', 'Freshroots Multigrain Bread 400g', 'Staple', true, 500, 'Units', 'DIST004', null, null, null),
+  ('SKU012', 'Freshroots Herbal Tea 25 bags', 'Beverage', false, 150, 'Units', 'DIST004', null, null, null),
+  ('SKU013', 'Freshroots Peanut Butter 300g', 'Condiment', false, 120, 'Units', 'DIST001', null, null, null),
+  ('SKU014', 'Freshroots Dark Chocolate 80g', 'Snack', false, 200, 'Units', 'DIST002', null, null, null),
+  ('SKU015', 'Freshroots Honey 500g', 'Condiment', false, 80, 'Units', 'DIST003', null, null, null)
 on conflict (id) do update set name = excluded.name, category = excluded.category, perishable = excluded.perishable, reorder_qty = excluded.reorder_qty, unit_of_measure = excluded.unit_of_measure, distributor_id = excluded.distributor_id, unit_cost = excluded.unit_cost, unit_price = excluded.unit_price, price_source = excluded.price_source;
 
 insert into weekly_sales (sku_id, week, units_sold) values

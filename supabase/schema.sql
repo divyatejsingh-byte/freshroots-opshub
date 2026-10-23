@@ -11,14 +11,14 @@ create table if not exists distributors (
 create table if not exists skus (
   id             text primary key,
   name           text not null,
-  category       text not null,
-  perishable     boolean not null default false,
-  reorder_qty    integer not null default 1,
+  category       text,                       -- null = missing in the source, raised as a data gap
+  perishable     boolean,
+  reorder_qty    integer,
   unit_of_measure text not null default 'Units',
   distributor_id text references distributors (id),
   unit_cost      numeric(12, 2),
   unit_price     numeric(12, 2),
-  price_source   text not null default 'assumed'
+  price_source   text
 );
 
 create table if not exists weekly_sales (
@@ -41,6 +41,18 @@ create table if not exists calendar (
   year              integer not null,
   month             integer not null,
   is_festival_month boolean not null
+);
+
+-- Human-entered values and confirmations that fill data gaps, with the reason recorded
+create table if not exists data_fixes (
+  sku_id    text not null references skus (id) on delete cascade,
+  field     text not null,
+  value     jsonb not null,
+  note      text not null,
+  source    text not null default 'planner',
+  fixed_by  text,
+  fixed_at  timestamptz not null default now(),
+  primary key (sku_id, field)
 );
 
 -- Planner decisions made in the Demand Planning Studio
@@ -88,6 +100,7 @@ alter table weekly_sales     enable row level security;
 alter table inventory        enable row level security;
 alter table calendar         enable row level security;
 alter table decisions        enable row level security;
+alter table data_fixes       enable row level security;
 alter table suppliers        enable row level security;
 alter table purchase_orders  enable row level security;
 alter table po_lines         enable row level security;

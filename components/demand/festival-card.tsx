@@ -25,7 +25,14 @@ export function FestivalCard({ analyses }: { analyses: Analysis[] }) {
 
   return (
     <Card className="overflow-hidden">
-      {festival.active ? (
+      {!festival.confirmed ? (
+        <div className="flex flex-wrap items-center gap-3 border-b border-rose-500/30 bg-rose-500/[0.07] px-4 py-3">
+          <CalendarHeart className="h-4 w-4 shrink-0 text-rose-300" />
+          <p className="min-w-0 flex-1 text-sm text-rose-200">
+            <span className="font-medium">The calendar has no row for this month, so nothing is assumed.</span> Uplift is off. Turn the switch on or off to confirm your decision.
+          </p>
+        </div>
+      ) : festival.active ? (
         <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/20 bg-amber-500/[0.07] px-4 py-3">
           <Sparkles className="h-4 w-4 shrink-0 text-amber-300" />
           <p className="min-w-0 flex-1 text-sm text-amber-100/90">

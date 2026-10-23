@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, Pause, PenLine, Play, Undo2, Zap } from "lucide-react";
+import { Check, ClipboardEdit, Pause, PenLine, Play, Undo2, Zap } from "lucide-react";
+import Link from "next/link";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/controls";
-import { effectiveQty } from "@/lib/engine/heuristics";
+import { effectiveQty, priceUnknown } from "@/lib/engine/heuristics";
 import { useDemandStore } from "@/lib/store";
 import type { Analysis, Decision, EdgeReason, SkuStatus } from "@/lib/types";
 import { cn, formatInr, formatNumber } from "@/lib/utils";
@@ -14,6 +15,7 @@ const STATUS: Record<SkuStatus, { label: string; tone: Tone }> = {
   overstock: { label: "Overstock", tone: "rose" },
   healthy: { label: "Healthy", tone: "emerald" },
   nodata: { label: "No baseline", tone: "neutral" },
+  blocked: { label: "Data gap", tone: "amber" },
 };
 
 const EDGE_LABEL: Record<EdgeReason, string> = {
@@ -56,7 +58,7 @@ export function SkuTable({
 
   const selectable = rows.filter((a) => {
     const st = decisions[a.sku.id]?.state;
-    return st !== "submitted" && st !== "paused";
+    return st !== "submitted" && st !== "paused" && a.blockers.length === 0 && a.orderGaps.length === 0;
   });
   const allOn = selectable.length > 0 && selectable.every((a) => selected.has(a.sku.id));
 
@@ -100,6 +102,12 @@ export function SkuTable({
             const locked = state === "paused" || state === "submitted";
             const st = STATUS[a.status];
             const cover = Number.isFinite(a.weeksOfCover) ? a.weeksOfCover.toFixed(1) : "∞";
+            // Missing data is shown as a dash, never as a made-up number
+            const blocked = a.blockers.length > 0;
+            const needsData = blocked || a.orderGaps.length > 0;
+            const unknown = (f: string) => a.sku.gaps.some((g) => g.field === f && g.severity !== "warning");
+            const gapLabels = [...a.blockers, ...a.orderGaps].map((g) => g.label.replace(/ for .*$/, ""));
+            const fixHref = `/data-gaps?sku=${a.sku.id}`;
             return (
               <tr key={a.sku.id} className={cn("transition-colors hover:bg-zinc-800/30", state === "approved" && "bg-emerald-500/[0.04]", selected.has(a.sku.id) && "bg-indigo-500/[0.07]")}>
                 <td className="td">
@@ -107,7 +115,7 @@ export function SkuTable({
                     type="checkbox"
                     className="h-3.5 w-3.5 accent-indigo-500 disabled:opacity-30"
                     checked={selected.has(a.sku.id)}
-                    disabled={locked}
+                    disabled={locked || needsData}
                     onChange={() => onToggle(a.sku.id)}
                     aria-label={`Select ${a.sku.name}`}
                   />
@@ -118,6 +126,15 @@ export function SkuTable({
                     {a.sku.name}
                   </p>
                   <div className="mt-1 flex flex-wrap gap-1">
+                    {needsData && (
+                      <Link href={fixHref} title={gapLabels.join("; ")}>
+                        <Badge tone="amber">
+                          <ClipboardEdit className="h-3 w-3" />
+                          {gapLabels.length} data gap{gapLabels.length === 1 ? "" : "s"}: {[...new Set(gapLabels)].slice(0, 2).join(", ")}
+                          {gapLabels.length > 2 ? "…" : ""}
+                        </Badge>
+                      </Link>
+                    )}
                     {a.isSurge && (
                       <Badge tone="amber">
                         <Zap className="h-3 w-3" />+{Math.round(a.surgePct * 100)}% surge · 1.5x
@@ -138,11 +155,15 @@ export function SkuTable({
                     {distributors.get(a.sku.distributorId)?.name ?? a.sku.distributorId}
                   </span>
                 </td>
-                <td className="td text-right tabular-nums">{formatNumber(a.sku.stock)}</td>
-                <td className="td text-right tabular-nums text-zinc-400">{a.sku.openPO ? formatNumber(a.sku.openPO) : "–"}</td>
-                <td className="td text-right tabular-nums">{formatNumber(a.sku.sales4w)}</td>
-                <td className="td text-right tabular-nums text-zinc-400">{formatNumber(a.sku.sales12w)}</td>
+                <td className="td text-right tabular-nums">{unknown("stock") ? "—" : formatNumber(a.sku.stock)}</td>
+                <td className="td text-right tabular-nums text-zinc-400">{unknown("openPO") ? "—" : a.sku.openPO ? formatNumber(a.sku.openPO) : "0"}</td>
+                <td className="td text-right tabular-nums">{blocked ? "—" : formatNumber(a.sku.sales4w)}</td>
+                <td className="td text-right tabular-nums text-zinc-400">{blocked ? "—" : formatNumber(a.sku.sales12w)}</td>
                 <td className="td">
+                  {blocked ? (
+                    <span className="text-xs text-zinc-600">Needs data</span>
+                  ) : (
+                  <>
                   <div className="flex items-center gap-2">
                     <span className={cn("w-9 text-right text-xs font-medium tabular-nums", a.status === "healthy" ? "text-zinc-300" : "text-rose-300")}>{cover}</span>
                     <ProgressBar value={Number.isFinite(a.weeksOfCover) ? a.weeksOfCover : a.overstockAbove * 1.5} max={a.overstockAbove * 1.5} tone={coverTone(a)} />
@@ -150,6 +171,8 @@ export function SkuTable({
                   <p className="mt-0.5 pl-11 text-[10px] text-zinc-600">
                     {a.stockoutBelow}–{a.overstockAbove} wk band
                   </p>
+                  </>
+                  )}
                 </td>
                 <td className="td">
                   <Badge tone={st.tone} dot>
@@ -159,6 +182,8 @@ export function SkuTable({
                 <td className="td text-right">
                   {state === "submitted" ? (
                     <Badge tone="indigo">PO raised</Badge>
+                  ) : blocked ? (
+                    <span className="text-sm text-zinc-600">—</span>
                   ) : (
                     <input
                       type="number"
@@ -171,12 +196,17 @@ export function SkuTable({
                       className="h-8 w-24 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-right text-sm tabular-nums text-zinc-100 hover:border-zinc-700 focus:border-indigo-500/60 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-40"
                     />
                   )}
-                  <p className="mt-0.5 text-[10px] tabular-nums text-zinc-600">{formatInr(qty * a.sku.unitCost)}</p>
+                  <p className="mt-0.5 text-[10px] tabular-nums text-zinc-600">{blocked || priceUnknown(a) ? "₹ —" : formatInr(qty * a.sku.unitCost)}</p>
                 </td>
                 <td className="td">
                   <div className="flex items-center justify-end gap-1.5">
                     {state === "submitted" ? (
                       <span className="text-xs text-zinc-600">Pushed</span>
+                    ) : needsData && state !== "approved" ? (
+                      <Link href={fixHref} className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-indigo-500 px-2.5 text-xs font-medium text-white hover:bg-indigo-400">
+                        <ClipboardEdit className="h-3 w-3" />
+                        Fix data
+                      </Link>
                     ) : a.status === "overstock" || state === "paused" ? (
                       state === "paused" ? (
                         <Button size="sm" variant="ghost" onClick={() => unapprove(a.sku.id)}>
@@ -211,7 +241,7 @@ export function SkuTable({
                         Approve
                       </Button>
                     )}
-                    {state !== "submitted" && a.status !== "overstock" && state !== "paused" && (
+                    {state !== "submitted" && a.status !== "overstock" && state !== "paused" && !needsData && (
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onOverride(a)} aria-label={`Override ${a.sku.name}`} title="Manual override with reason">
                         <PenLine className="h-3.5 w-3.5" />
                       </Button>

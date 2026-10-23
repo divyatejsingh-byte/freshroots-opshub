@@ -12,19 +12,25 @@ export const SURGE_THRESHOLD = 0.2;
 export const SURGE_MULTIPLIER = 1.5;
 export const VOLATILITY_LIMIT = 0.45;
 
-/** Fallback festival months (0-indexed) for any month missing from calendar.csv: October, November, March */
-export const FESTIVAL_MONTHS = [9, 10, 2];
+/** Uplift applied when a festival month is on, per the planning rules; adjustable per category in the UI */
 export const DEFAULT_UPLIFT_PCT = 25;
 export const FESTIVAL_SEGMENTS: Segment[] = ["Beverage", "Snack", "Staple", "Dairy Alt", "Condiment"];
 
-export function isFestivalMonth(date: Date): boolean {
-  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-  return key in FESTIVAL_CALENDAR ? FESTIVAL_CALENDAR[key] : FESTIVAL_MONTHS.includes(date.getMonth());
+const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+/** Whether calendar.csv has a row for this month at all */
+export function calendarKnows(date: Date): boolean {
+  return monthKey(date) in FESTIVAL_CALENDAR;
 }
 
+/**
+ * Uplift is on only when calendar.csv says the month is a festival month.
+ * If the month is not in the calendar nothing is assumed: uplift stays off and a person must decide.
+ */
 export function defaultFestivalConfig(now = new Date()): FestivalConfig {
   return {
-    active: isFestivalMonth(now),
+    active: FESTIVAL_CALENDAR[monthKey(now)] === true,
+    confirmed: calendarKnows(now),
     uplift: Object.fromEntries(FESTIVAL_SEGMENTS.map((s) => [s, DEFAULT_UPLIFT_PCT])),
   };
 }
@@ -35,6 +41,31 @@ export function weeksOfCover(stock: number, openPO: number, weeklyVelocity: numb
 }
 
 export function analyzeSku(sku: Sku, festival: FestivalConfig): Analysis {
+  const blockers = sku.gaps.filter((g) => g.severity === "blocking");
+  const orderGaps = sku.gaps.filter((g) => g.severity === "ordering");
+
+  // Missing data: no cover, status or recommendation is produced until a person resolves it
+  if (blockers.length) {
+    return {
+      sku,
+      velocity: 0,
+      weeksOfCover: 0,
+      status: "blocked",
+      stockoutBelow: 0,
+      overstockAbove: 0,
+      surgePct: 0,
+      isSurge: false,
+      multiplier: 1,
+      festivalUplift: 0,
+      edgeReasons: [],
+      isEdge: false,
+      blockers,
+      orderGaps,
+      forecastWeekly: 0,
+      recommendedQty: 0,
+    };
+  }
+
   const t = sku.perishable ? THRESHOLDS.perishable : THRESHOLDS.standard;
   const velocity = sku.sales4w > 0 ? sku.sales4w : sku.sales12w;
   const cover = weeksOfCover(sku.stock, sku.openPO, velocity);
@@ -78,6 +109,8 @@ export function analyzeSku(sku: Sku, festival: FestivalConfig): Analysis {
     festivalUplift,
     edgeReasons,
     isEdge: edgeReasons.length > 0,
+    blockers,
+    orderGaps,
     forecastWeekly,
     recommendedQty,
   };
@@ -87,9 +120,19 @@ export function effectiveQty(a: Analysis, d?: Decision): number {
   return d?.qty ?? a.recommendedQty;
 }
 
-/** Clean SKUs governed by deterministic rules: no edge flags and something to order */
+/** True when a person has to fill something in before this SKU can be ordered */
+export function hasOpenGaps(a: Analysis): boolean {
+  return a.blockers.length > 0 || a.orderGaps.length > 0;
+}
+
+/** Cost and price are unknown, so every ₹ figure for this SKU is unknown too */
+export function priceUnknown(a: Analysis): boolean {
+  return a.orderGaps.some((g) => g.field === "unitCost" || g.field === "unitPrice");
+}
+
+/** Clean SKUs governed by deterministic rules: no edge flags, no data gaps, something to order */
 export function isFastTrack(a: Analysis): boolean {
-  return !a.isEdge && a.recommendedQty > 0;
+  return !a.isEdge && !hasOpenGaps(a) && a.recommendedQty > 0;
 }
 
 /** Excess units above the overstock ceiling */
@@ -103,7 +146,7 @@ const WRITE_OFF_RATE = { standard: 0.18, perishable: 0.65 };
 
 /** Lost sales avoided per quarter by covering a stockout risk */
 export function stockoutSaving(a: Analysis): number {
-  if (a.status !== "critical") return 0;
+  if (a.status !== "critical" || priceUnknown(a)) return 0;
   const shortWeeks = a.stockoutBelow - a.weeksOfCover;
   const lostMargin = a.sku.unitPrice - a.sku.unitCost;
   return shortWeeks * a.velocity * lostMargin * QUARTER_CYCLES * 0.5;
@@ -111,7 +154,7 @@ export function stockoutSaving(a: Analysis): number {
 
 /** Write-off avoided per quarter by pausing orders on an overstock */
 export function overstockSaving(a: Analysis): number {
-  if (a.status !== "overstock") return 0;
+  if (a.status !== "overstock" || priceUnknown(a)) return 0;
   const rate = a.sku.perishable ? WRITE_OFF_RATE.perishable : WRITE_OFF_RATE.standard;
   return excessUnits(a) * a.sku.unitCost * rate;
 }
@@ -122,6 +165,7 @@ export function potentialSaving(a: Analysis): number {
 
 /** Inventory value exposed to stockout or overstock */
 export function atRiskValue(a: Analysis): number {
+  if (priceUnknown(a)) return 0;
   if (a.status === "critical") {
     const shortUnits = (a.stockoutBelow - a.weeksOfCover) * a.velocity;
     return shortUnits * a.sku.unitPrice;

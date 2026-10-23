@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, BellRing, Home, Leaf, Truck } from "lucide-react";
+import { BarChart3, BellRing, ClipboardEdit, Home, Leaf, Truck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Toaster } from "@/components/ui/toast";
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/", label: "Command Hub", icon: Home },
   { href: "/demand-planning", label: "Demand Planning", icon: BarChart3 },
   { href: "/suppliers", label: "Supplier Desk", icon: Truck },
+  { href: "/data-gaps", label: "Data Gaps", icon: ClipboardEdit },
   { href: "/notifications", label: "Digest & Dispatch", icon: BellRing },
 ];
 

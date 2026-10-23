@@ -64,8 +64,8 @@ export function SupplierDesk() {
       </div>
 
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-4 py-2.5 text-sm text-amber-200">
-        Sample data: the uploaded files have no supplier master or PO history, so vendors, past POs and the SKU-to-vendor links are generated. POs raised from the
-        Demand Planning Studio use your real SKUs and quantities.
+        The uploaded files have no supplier master, so this vendor list is sample data, and no purchase history has been invented. Which vendor supplies each SKU is not
+        assumed: assign it on the Data Gaps page. POs raised from the Demand Planning Studio appear here.
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

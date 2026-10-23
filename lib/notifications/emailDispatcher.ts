@@ -52,6 +52,15 @@ export function buildEmail(d: Digest): EmailMessage {
        </div>`
     : "";
 
+  const gapItems = [...d.dataGaps.byLabel.map((g) => `${esc(g.label)}: ${g.count}`), ...d.dataGaps.global.map(esc)];
+  const gapsBlock =
+    d.dataGaps.blockedSkus || d.dataGaps.global.length
+      ? `<div style="margin:6px;padding:12px 16px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:13px">
+           🧩 <strong>Data gaps need a human decision.</strong> ${d.dataGaps.blockedSkus} of ${d.totalSkus} SKUs are on hold and are excluded from the counts above. Nothing has been assumed.
+           <ul style="margin:8px 0 8px 18px;padding:0">${gapItems.map((i) => `<li>${i}</li>`).join("")}</ul>
+           <a href="${esc(d.dataGaps.url)}" style="color:#9a3412;font-weight:600">Resolve data gaps</a>
+         </div>`
+      : "";
   const rows = d.topCritical
     .map(
       (s) => `<tr>
@@ -73,9 +82,10 @@ export function buildEmail(d: Digest): EmailMessage {
   <tr><td style="background:#fafafa;padding:14px 22px">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>${kpiCell("🔴 Critical stockouts", String(d.critical.count), `Est. lost sales ${formatInrCompact(d.critical.lostSales)}`, "#be123c")}${kpiCell("🟡 Overstock warnings", String(d.overstock.count), `Tied-up capital ${formatInrCompact(d.overstock.tiedUpCapital)}`, "#b45309")}</tr>
-      <tr>${kpiCell("🟢 Ready for batch approval", String(d.readyForApproval.count), `Rule-passed · ${formatInrCompact(d.readyForApproval.orderValue)} order value`, "#047857")}${kpiCell("💳 Pending payables", formatInrCompact(d.payables.pendingApproval), `${d.payables.pendingCount} POs awaiting approval` + (d.payables.overdueCount ? ` · ${formatInrCompact(d.payables.overdue)} overdue` : ""), "#4338ca")}</tr>
+      <tr>${kpiCell("🟢 Ready for batch approval", String(d.readyForApproval.count), `Rule-passed · ${formatInrCompact(d.readyForApproval.orderValue)} order value`, "#047857")}${kpiCell("🧩 Data gaps", String(d.dataGaps.blockedSkus), `of ${d.totalSkus} SKUs on hold for missing data`, d.dataGaps.blockedSkus ? "#b45309" : "#047857")}</tr>
     </table>
     ${festival}
+    ${gapsBlock}
   </td></tr>
   <tr><td style="background:#fafafa;padding:0 28px 8px">
     <div style="font-size:14px;font-weight:700;margin:8px 0 8px">Needs Raghav's immediate action</div>
@@ -97,7 +107,10 @@ export function buildEmail(d: Digest): EmailMessage {
     `Overstock warnings: ${d.overstock.count} (tied-up capital ${formatInrCompact(d.overstock.tiedUpCapital)})`,
     `Ready for batch approval: ${d.readyForApproval.count} (${formatInrCompact(d.readyForApproval.orderValue)})`,
     d.festival.active ? `Festival uplift: ${d.festival.name} +${d.festival.upliftPct}% on ${d.festival.segments.join(", ")}` : "Festival uplift: none active",
-    `Pending payables: ${formatInrCompact(d.payables.pendingApproval)} (${d.payables.pendingCount} POs)`,
+    d.dataGaps.blockedSkus || d.dataGaps.global.length
+      ? `DATA GAPS: ${d.dataGaps.blockedSkus} of ${d.totalSkus} SKUs on hold (excluded from counts). ${[...d.dataGaps.byLabel.map((g) => `${g.label}: ${g.count}`), ...d.dataGaps.global].join("; ")}. Resolve: ${d.dataGaps.url}`
+      : "Data gaps: none",
+    d.payables ? `Pending payables: ${formatInrCompact(d.payables.pendingApproval)} (${d.payables.pendingCount} POs)` : "Supplier payables: not available yet (POs are not stored on the server)",
     "",
     "Top critical SKUs:",
     ...d.topCritical.map((s, i) => `${i + 1}. ${s.name} (${s.id}): ${cover(s.coverWeeks)} cover, reorder ${s.recommendedQty} units, ${s.supplier}`),

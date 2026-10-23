@@ -1,13 +1,15 @@
 "use client";
 
-import { AlertOctagon, X, ChevronLeft, ChevronRight, ClipboardCheck, Flame, PackageMinus, RefreshCw, Rocket, Timer, UploadCloud, Wrench } from "lucide-react";
+import { AlertOctagon, AlertTriangle, ClipboardEdit, X, ChevronLeft, ChevronRight, ClipboardCheck, Flame, PackageMinus, RefreshCw, Rocket, Timer, UploadCloud, Wrench } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SearchInput, Select, Tabs, type TabDef } from "@/components/ui/controls";
 import { toast } from "@/components/ui/toast";
 import { effectiveQty, isFastTrack } from "@/lib/engine/heuristics";
-import { useAnalyses, useDemandStore, useSavings } from "@/lib/store";
+import { summarizeGaps } from "@/lib/data/quality";
+import { useAnalyses, useDemandStore, useGlobalGaps, useSavings } from "@/lib/store";
 import type { Analysis, Category } from "@/lib/types";
 import { BatchBar } from "./batch-bar";
 import { FestivalCard } from "./festival-card";
@@ -16,7 +18,7 @@ import { KpiStrip } from "./kpi-strip";
 import { OverrideDialog } from "./override-dialog";
 import { SkuTable } from "./sku-table";
 
-type TabId = "movers" | "critical" | "overstock" | "fast" | "edge" | "perishable";
+type TabId = "movers" | "critical" | "overstock" | "fast" | "edge" | "perishable" | "gaps";
 type SortId = "default" | "velocity-desc" | "velocity-asc" | "cover-asc" | "cover-desc" | "value-desc";
 
 const PAGE_SIZE = 25;
@@ -28,6 +30,7 @@ const TAB_FILTER: Record<TabId, (a: Analysis) => boolean> = {
   fast: isFastTrack,
   edge: (a) => a.isEdge,
   perishable: (a) => a.sku.perishable,
+  gaps: (a) => a.blockers.length > 0 || a.orderGaps.length > 0,
 };
 
 const TAB_BLURB: Record<TabId, string> = {
@@ -37,6 +40,7 @@ const TAB_BLURB: Record<TabId, string> = {
   fast: "Clean SKUs with no edge flags, governed by deterministic rules. Approve the whole lane in one click.",
   edge: "Zero baselines, high volatility or distributor drops. These need your judgement and a reason note before approval.",
   perishable: "Strict 3-4 week inventory windows: stockout below 3 weeks, overstock above 4.",
+  gaps: "Data is missing for these SKUs. Nothing is assumed: fill in or confirm each value on the Data Gaps page and the SKU is released.",
 };
 
 function sortRows(rows: Analysis[], tab: TabId, sort: SortId, decisions: ReturnType<typeof useDemandStore.getState>["decisions"]): Analysis[] {
@@ -78,6 +82,8 @@ export function DemandStudio() {
   const reseed = useDemandStore((s) => s.reseed);
   const batchApprove = useDemandStore((s) => s.batchApprove);
   const savings = useSavings(analyses);
+  const gapSummary = useMemo(() => summarizeGaps(skus), [skus]);
+  const globals = useGlobalGaps();
 
   const [tab, setTab] = useState<TabId>("movers");
   const [category, setCategory] = useState<Category | "all">("all");
@@ -152,6 +158,7 @@ export function DemandStudio() {
     { id: "fast", label: "Auto 80% Fast-Track", count: counts.fast, icon: <Rocket className="h-3.5 w-3.5" /> },
     { id: "edge", label: "15-20% Edge Cases", count: counts.edge, icon: <Wrench className="h-3.5 w-3.5" /> },
     { id: "perishable", label: "Perishables Focus", count: counts.perishable, icon: <Timer className="h-3.5 w-3.5" /> },
+    { id: "gaps", label: "Data Gaps", count: counts.gaps, icon: <ClipboardEdit className="h-3.5 w-3.5" /> },
   ];
 
   const pendingFast = rows.filter((a) => tab === "fast" && (decisions[a.sku.id]?.state ?? "pending") === "pending");
@@ -164,7 +171,6 @@ export function DemandStudio() {
           <p className="text-sm text-zinc-500">Bi-weekly SKU heuristics, festival buffers and batch PO approvals.</p>
           <p className="mt-0.5 text-xs text-zinc-600">
             {meta.source === "supabase" ? "Source: Supabase" : "Source: bundled CSV files"} · stock as of {meta.stockAsOf} · sales {meta.salesFromWeek} to {meta.salesToWeek}
-            {meta.assumedPrices > 0 && ` · unit costs and prices for ${meta.assumedPrices} SKUs are placeholders (data/sku_prices.csv)`}
           </p>
         </div>
         <div className="flex gap-2">
@@ -184,7 +190,30 @@ export function DemandStudio() {
         </div>
       </div>
 
-      <KpiStrip analyses={analyses} festival={festival} savings={savings} />
+      {(gapSummary.blockedSkus > 0 || globals.length > 0) && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-300" />
+          <div className="min-w-0 flex-1 text-sm text-amber-100/90">
+            {gapSummary.blockedSkus > 0 && (
+              <p>
+                <span className="font-medium text-amber-200">{gapSummary.blockedSkus} of {skus.length} SKUs are on hold because data is missing.</span> Nothing has been assumed: they are
+                left out of every count and cannot be approved until you fill in or confirm the missing values.
+              </p>
+            )}
+            {globals.map((g) => (
+              <p key={g.id} className="text-xs text-amber-200/80">
+                {g.label}. {g.detail}
+              </p>
+            ))}
+          </div>
+          <Link href="/data-gaps" className="inline-flex h-9 items-center gap-2 rounded-lg bg-indigo-500 px-3.5 text-sm font-medium text-white hover:bg-indigo-400">
+            <ClipboardEdit className="h-4 w-4" />
+            Resolve data gaps
+          </Link>
+        </div>
+      )}
+
+      <KpiStrip analyses={analyses} festival={festival} savings={savings} gaps={gapSummary} />
       <FestivalCard analyses={analyses} />
 
       <Card>

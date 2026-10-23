@@ -1,6 +1,7 @@
 import { parseCsv } from "../csv";
-import type { Category, Distributor, Sku, Supplier, SupplierCategory } from "../types";
+import type { Distributor, RawSku } from "../types";
 import { RAW } from "./raw";
+import { weekWindow } from "./week";
 
 type Row = Record<string, string>;
 
@@ -12,66 +13,39 @@ function records(text: string): Row[] {
   return rows.map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? "").trim()])));
 }
 
-const num = (v: string | undefined, fallback = 0) => {
+/** A number, or null when the cell is blank or not numeric. Never a default. */
+const numOrNull = (v: string | undefined): number | null => {
+  if (v === undefined || v.trim() === "") return null;
   const n = Number(v);
-  return v === undefined || v === "" || Number.isNaN(n) ? fallback : n;
+  return Number.isFinite(n) ? n : null;
 };
+const textOrNull = (v: string | undefined) => (v && v.trim() !== "" ? v.trim() : null);
 
 /** Year-month ("2026-10") to whether it is a festival month, from calendar.csv */
 export const FESTIVAL_CALENDAR: Record<string, boolean> = Object.fromEntries(
   records(RAW.calendar).map((r) => [r.Year_Month, r.Is_Festival_Month.toUpperCase() === "TRUE"])
 );
 
-const CATEGORY_SUPPLIERS: Record<Category, SupplierCategory[]> = {
-  Beverage: ["Raw Ingredients", "Packaging Material"],
-  Snack: ["Raw Ingredients", "Oil/Ghee", "Packaging Material"],
-  Staple: ["Raw Ingredients", "Packaging Material"],
-  "Dairy Alt": ["Raw Ingredients", "Packaging Material"],
-  Condiment: ["Raw Ingredients", "Spices", "Packaging Material"],
-};
-
 export type DataSource = "csv" | "supabase";
+
+/** Length of the sales window the engine needs (the 12-week baseline) */
+export const SALES_WINDOW_WEEKS = 12;
 
 export interface DatasetMeta {
   source: DataSource;
   stockAsOf: string;
   salesFromWeek: string;
   salesToWeek: string;
+  /** The expected 12 weeks, oldest first, ending at the latest week in the data */
+  weeks: string[];
   skuCount: number;
   distributorCount: number;
-  /** SKUs whose unit cost and price are placeholders (sku_prices.csv Source = assumed) */
-  assumedPrices: number;
 }
 
 export interface Dataset {
-  skus: Sku[];
+  raws: RawSku[];
   distributors: Distributor[];
   meta: DatasetMeta;
-}
-
-function packSize(name: string): string {
-  const m = name.match(/(\d+(?:\.\d+)?\s?(?:ml|g|kg|l|bags))\s*$/i);
-  return m ? m[1] : "";
-}
-
-/**
- * Builds the SKU list from the uploaded files.
- * velocity: 4w and 12w averages are the mean of the latest 4 and 12 weeks in weekly_sales.csv.
- * volatility: coefficient of variation of the latest 12 weeks.
- * Suppliers are not in the files, so each SKU is linked to a sample supplier by category.
- */
-export function loadDataset(suppliers: Supplier[]): Dataset {
-  return buildDataset(
-    {
-      skuMaster: records(RAW.skuMaster),
-      weeklySales: records(RAW.weeklySales),
-      inventory: records(RAW.currentInventory),
-      distributors: records(RAW.distributorMaster),
-      prices: records(RAW.skuPrices),
-    },
-    suppliers,
-    "csv"
-  );
 }
 
 /** Source-agnostic rows, keyed by the CSV header names (Supabase rows are mapped into this shape) */
@@ -80,13 +54,28 @@ export interface SourceRows {
   weeklySales: Row[];
   inventory: Row[];
   distributors: Row[];
+  /** Optional: unit cost and price. Absent or blank means unknown. */
   prices: Row[];
 }
 
-export function buildDataset(rows: SourceRows, suppliers: Supplier[], source: DataSource): Dataset {
-  const master = rows.skuMaster;
-  const sales = rows.weeklySales;
-  const inventory = rows.inventory;
+export function loadDataset(): Dataset {
+  return buildDataset(
+    {
+      skuMaster: records(RAW.skuMaster),
+      weeklySales: records(RAW.weeklySales),
+      inventory: records(RAW.currentInventory),
+      distributors: records(RAW.distributorMaster),
+      prices: records(RAW.skuPrices),
+    },
+    "csv"
+  );
+}
+
+/**
+ * Reads the source rows exactly as they are. Nothing is defaulted: a blank or absent value stays null
+ * and is raised as a data gap (lib/data/quality.ts) for a person to resolve.
+ */
+export function buildDataset(rows: SourceRows, source: DataSource): Dataset {
   const distributors = rows.distributors.map<Distributor>((r) => ({
     id: r.Distributor_ID,
     name: r.Distributor_Name,
@@ -95,72 +84,57 @@ export function buildDataset(rows: SourceRows, suppliers: Supplier[], source: Da
   }));
   const prices = new Map(rows.prices.map((r) => [r.SKU_ID, r]));
 
-  const weeks = [...new Set(sales.map((r) => r.Week))].sort();
-  const last12 = weeks.slice(-12);
-  const last4 = weeks.slice(-4);
+  const allWeeks = [...new Set(rows.weeklySales.map((r) => r.Week))].sort();
+  const lastWeek = allWeeks[allWeeks.length - 1] ?? "";
 
-  const bySku = new Map<string, Map<string, number>>();
-  for (const r of sales) {
-    const m = bySku.get(r.SKU_ID) ?? new Map<string, number>();
-    m.set(r.Week, (m.get(r.Week) ?? 0) + num(r.Units_Sold));
-    bySku.set(r.SKU_ID, m);
+  const weeklyBySku = new Map<string, Record<string, number>>();
+  for (const r of rows.weeklySales) {
+    const units = numOrNull(r.Units_Sold);
+    if (units === null) continue; // a blank sales cell is a missing week, not zero
+    const m = weeklyBySku.get(r.SKU_ID) ?? {};
+    m[r.Week] = (m[r.Week] ?? 0) + units;
+    weeklyBySku.set(r.SKU_ID, m);
   }
 
-  const stock = new Map<string, number>();
-  for (const r of inventory) stock.set(r.SKU_ID, (stock.get(r.SKU_ID) ?? 0) + num(r.Units_On_Hand));
-  const stockAsOf = inventory.map((r) => r.As_Of_Date).sort().pop() ?? "";
+  const stock = new Map<string, { units: number; asOf: string | null }>();
+  for (const r of rows.inventory) {
+    const units = numOrNull(r.Units_On_Hand);
+    if (units === null) continue;
+    const cur = stock.get(r.SKU_ID);
+    stock.set(r.SKU_ID, { units: (cur?.units ?? 0) + units, asOf: [cur?.asOf, textOrNull(r.As_Of_Date)].filter(Boolean).sort().pop() ?? null });
+  }
 
-  const distributorById = new Map(distributors.map((d) => [d.id, d]));
-  const bySupplierCat = new Map<SupplierCategory, Supplier[]>();
-  for (const s of suppliers) bySupplierCat.set(s.category, [...(bySupplierCat.get(s.category) ?? []), s]);
-
-  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-
-  const skus = master.map<Sku>((r, i) => {
-    const weekly = bySku.get(r.SKU_ID) ?? new Map<string, number>();
-    const series12 = last12.map((w) => weekly.get(w) ?? 0);
-    const series4 = last4.map((w) => weekly.get(w) ?? 0);
-    const mean12 = avg(series12);
-    const sd = Math.sqrt(avg(series12.map((x) => (x - mean12) ** 2)));
-    const category = r.Category as Category;
+  const raws = rows.skuMaster.map<RawSku>((r) => {
+    const perish = r.Perishability.trim().toLowerCase();
     const price = prices.get(r.SKU_ID);
-
-    const cats = CATEGORY_SUPPLIERS[category] ?? ["Raw Ingredients"];
-    const pool = bySupplierCat.get(cats[i % cats.length]) ?? suppliers;
-    const supplier = pool[(i * 5 + 2) % pool.length];
-
     return {
       id: r.SKU_ID,
       name: r.SKU_Name,
-      category,
-      segment: category,
-      perishable: r.Perishability.toLowerCase() === "high",
-      packSize: packSize(r.SKU_Name),
-      unitCost: num(price?.Unit_Cost),
-      unitPrice: num(price?.Unit_Price),
-      caseSize: Math.max(1, num(r.Standard_Reorder_Qty, 1)),
-      stock: stock.get(r.SKU_ID) ?? 0,
-      openPO: 0,
-      sales4w: Math.round(avg(series4) * 10) / 10,
-      sales12w: Math.round(mean12 * 10) / 10,
-      volatility: mean12 > 0 ? Math.round((sd / mean12) * 100) / 100 : 0,
-      distributorId: r.Distributor_ID,
-      distributorDrop: distributorById.get(r.Distributor_ID)?.active === false,
-      supplierId: supplier.id,
+      category: textOrNull(r.Category),
+      perishable: perish === "high" ? true : perish === "low" ? false : null,
+      reorderQty: numOrNull(r.Standard_Reorder_Qty),
+      distributorId: textOrNull(r.Distributor_ID),
+      unitCost: numOrNull(price?.Unit_Cost),
+      unitPrice: numOrNull(price?.Unit_Price),
+      stock: stock.get(r.SKU_ID)?.units ?? null,
+      stockAsOf: stock.get(r.SKU_ID)?.asOf ?? null,
+      openPO: null, // no open-PO source yet: always asked of a person
+      supplierId: null, // no SKU-to-vendor source yet: always asked of a person
+      weekly: weeklyBySku.get(r.SKU_ID) ?? {},
     };
   });
 
   return {
-    skus,
+    raws,
     distributors,
     meta: {
       source,
-      stockAsOf,
-      salesFromWeek: weeks[0] ?? "",
-      salesToWeek: weeks[weeks.length - 1] ?? "",
-      skuCount: skus.length,
+      stockAsOf: [...stock.values()].map((s) => s.asOf).filter(Boolean).sort().pop() ?? "",
+      salesFromWeek: allWeeks[0] ?? "",
+      salesToWeek: lastWeek,
+      weeks: lastWeek ? weekWindow(lastWeek, SALES_WINDOW_WEEKS) : [],
+      skuCount: raws.length,
       distributorCount: distributors.length,
-      assumedPrices: [...prices.values()].filter((p) => p.Source === "assumed").length,
     },
   };
 }

@@ -40,8 +40,15 @@ export function buildSlackPayload(d: Digest): SlackPayload {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `💳 *Pending supplier payables:* *${formatInrCompact(d.payables.pendingApproval)}* across ${d.payables.pendingCount} POs awaiting approval` + (d.payables.overdueCount ? ` · ⚠️ ${formatInrCompact(d.payables.overdue)} overdue (${d.payables.overdueCount} POs)` : ""),
+        text: d.dataGaps.blockedSkus || d.dataGaps.global.length
+          ? `🧩 *Data gaps need a human decision:* *${d.dataGaps.blockedSkus}* of ${d.totalSkus} SKUs are on hold (${d.dataGaps.totalGaps} missing items). Counts above exclude them.\n` +
+            [...d.dataGaps.byLabel.map((g) => `• ${g.label}: ${g.count}`), ...d.dataGaps.global.map((g) => `• ${g}`)].join("\n")
+          : "🧩 *Data gaps:* none. Every SKU has complete data.",
       },
+    },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: d.payables ? `💳 Pending supplier payables ${formatInrCompact(d.payables.pendingApproval)}` : "💳 Supplier payables: not available yet, purchase orders are not stored on the server" }],
     },
     { type: "divider" },
     { type: "section", text: { type: "mrkdwn", text: "*Top 3 critical SKUs needing Raghav's immediate action*" } },
@@ -63,6 +70,9 @@ export function buildSlackPayload(d: Digest): SlackPayload {
           url: d.workbenchUrl,
           action_id: "open_workbench",
         },
+        ...(d.dataGaps.blockedSkus
+          ? [{ type: "button", text: { type: "plain_text", text: "Resolve data gaps", emoji: true }, url: d.dataGaps.url, action_id: "open_data_gaps" }]
+          : []),
       ],
     },
   ];

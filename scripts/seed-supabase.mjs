@@ -78,13 +78,13 @@ await upsert(
     id: r.SKU_ID,
     name: r.SKU_Name,
     category: r.Category,
-    perishable: r.Perishability.toLowerCase() === "high",
-    reorder_qty: Number(r.Standard_Reorder_Qty),
+    perishable: r.Perishability.toLowerCase() === "high" ? true : r.Perishability.toLowerCase() === "low" ? false : null,
+    reorder_qty: r.Standard_Reorder_Qty === "" ? null : Number(r.Standard_Reorder_Qty),
     unit_of_measure: r.Unit_of_Measure,
     distributor_id: r.Distributor_ID,
-    unit_cost: Number(prices.get(r.SKU_ID)?.Unit_Cost ?? 0) || null,
-    unit_price: Number(prices.get(r.SKU_ID)?.Unit_Price ?? 0) || null,
-    price_source: prices.get(r.SKU_ID)?.Source ?? "assumed",
+    unit_cost: prices.get(r.SKU_ID)?.Unit_Cost ? Number(prices.get(r.SKU_ID).Unit_Cost) : null,
+    unit_price: prices.get(r.SKU_ID)?.Unit_Price ? Number(prices.get(r.SKU_ID).Unit_Price) : null,
+    price_source: prices.get(r.SKU_ID)?.Source || null,
   })),
   "id"
 );

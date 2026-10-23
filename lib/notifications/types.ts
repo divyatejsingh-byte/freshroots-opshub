@@ -19,7 +19,10 @@ export interface Digest {
   overstock: { count: number; tiedUpCapital: number };
   readyForApproval: { count: number; orderValue: number };
   festival: { active: boolean; name: string; upliftPct: number; segments: string[] };
-  payables: { pendingApproval: number; pendingCount: number; overdue: number; overdueCount: number };
+  /** null: purchase orders are not stored server-side yet, so payables cannot be known */
+  payables: { pendingApproval: number; pendingCount: number; overdue: number; overdueCount: number } | null;
+  /** Missing data raised for a person to resolve */
+  dataGaps: { blockedSkus: number; totalGaps: number; byLabel: { label: string; count: number }[]; global: string[]; url: string };
   topCritical: DigestSku[];
   workbenchUrl: string;
 }

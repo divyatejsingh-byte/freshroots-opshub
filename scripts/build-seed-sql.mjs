@@ -51,7 +51,7 @@ parts.push(insert("distributors", ["id", "name", "region", "active"],
 parts.push(insert("skus", ["id", "name", "category", "perishable", "reorder_qty", "unit_of_measure", "distributor_id", "unit_cost", "unit_price", "price_source"],
   read("sku_master.csv").map((r) => {
     const p = prices.get(r.SKU_ID);
-    return [q(r.SKU_ID), q(r.SKU_Name), q(r.Category), r.Perishability.toLowerCase() === "high" ? "true" : "false", n(r.Standard_Reorder_Qty), q(r.Unit_of_Measure), q(r.Distributor_ID), n(p?.Unit_Cost), n(p?.Unit_Price), q(p?.Source ?? "assumed")];
+    return [q(r.SKU_ID), q(r.SKU_Name), q(r.Category), r.Perishability.toLowerCase() === "high" ? "true" : r.Perishability.toLowerCase() === "low" ? "false" : "null", n(r.Standard_Reorder_Qty), q(r.Unit_of_Measure), q(r.Distributor_ID), n(p?.Unit_Cost), n(p?.Unit_Price), q(p?.Source)];
   }),
   "id", ["name", "category", "perishable", "reorder_qty", "unit_of_measure", "distributor_id", "unit_cost", "unit_price", "price_source"]));
 

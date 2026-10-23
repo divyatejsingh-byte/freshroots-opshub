@@ -2,24 +2,22 @@
 
 import { useMemo } from "react";
 import { create } from "zustand";
-import {
-  analyzeSku,
-  defaultFestivalConfig,
-  effectiveQty,
-  overstockSaving,
-  potentialSaving,
-  stockoutSaving,
-} from "./engine/heuristics";
+import { analyzeSku, defaultFestivalConfig, effectiveQty, overstockSaving, potentialSaving, stockoutSaving } from "./engine/heuristics";
 import { loadDataset, type DatasetMeta } from "./data/load";
-import { generatePurchaseOrders, generateSuppliers } from "./mockData";
+import { fixKey, globalGaps, resolveAll } from "./data/quality";
+import { generateSuppliers } from "./mockData";
 import type {
   Analysis,
+  DataFix,
   Decision,
   Distributor,
   FestivalConfig,
+  FixField,
+  GlobalGap,
   PaymentStatus,
   ProcurementStatus,
   PurchaseOrder,
+  RawSku,
   Segment,
   Sku,
   Supplier,
@@ -37,8 +35,21 @@ export interface IngestRecord {
   at: string;
 }
 
+export interface FixInput {
+  skuId: string;
+  field: FixField;
+  value: number | string | boolean;
+}
+
 interface DemandState {
   seed: number;
+  /** What the source files contain, with nulls where data is missing */
+  raws: RawSku[];
+  /** Planner-supplied values and confirmations that fill the gaps */
+  fixes: Record<string, DataFix>;
+  /** Units pushed on POs from this app, counted as in transit */
+  poAdds: Record<string, number>;
+  /** raws + fixes resolved. Fields are unusable while a SKU has gaps. */
   skus: Sku[];
   distributors: Distributor[];
   meta: DatasetMeta;
@@ -48,10 +59,12 @@ interface DemandState {
   festival: FestivalConfig;
   ingests: IngestRecord[];
 
-  /** True once the dataset came from Supabase: decisions are then saved back */
+  /** True once the dataset came from Supabase: decisions and fixes are then saved back */
   remote: boolean;
   hydrateRemote: () => Promise<{ source: string; error?: string }>;
   reseed: (seed?: number) => void;
+  applyFixes: (inputs: FixInput[], note: string, source?: DataFix["source"]) => void;
+  removeFix: (skuId: string, field: FixField) => void;
   setQty: (skuId: string, qty: number) => void;
   approve: (skuId: string) => void;
   unapprove: (skuId: string) => void;
@@ -69,17 +82,37 @@ interface DemandState {
   updatePo: (poNumber: string, patch: Partial<Pick<PurchaseOrder, "payment" | "procurement">>) => void;
 }
 
+type Resolvable = Pick<DemandState, "raws" | "meta" | "suppliers" | "distributors" | "fixes" | "poAdds">;
+
+function resolve(s: Resolvable): Sku[] {
+  return resolveAll(s.raws, { meta: s.meta, suppliers: s.suppliers, distributors: s.distributors, fixes: s.fixes, poAdds: s.poAdds });
+}
+
 function fresh(seed: number) {
   const suppliers = generateSuppliers(seed);
-  const { skus, distributors, meta } = loadDataset(suppliers);
-  const pos = generatePurchaseOrders(seed, suppliers, skus);
-  return { seed, suppliers, skus, distributors, meta, pos, decisions: {} as Record<string, Decision>, festival: defaultFestivalConfig(), ingests: [] as IngestRecord[] };
+  const { raws, distributors, meta } = loadDataset();
+  const base = { raws, meta, suppliers, distributors, fixes: {} as Record<string, DataFix>, poAdds: {} as Record<string, number> };
+  return {
+    seed,
+    ...base,
+    skus: resolve(base),
+    // No purchase history is invented: the list holds only POs raised in this app
+    pos: [] as PurchaseOrder[],
+    decisions: {} as Record<string, Decision>,
+    festival: defaultFestivalConfig(),
+    ingests: [] as IngestRecord[],
+  };
 }
 
 function nextPoNumber(pos: PurchaseOrder[]): number {
-  const max = pos.reduce((m, p) => Math.max(m, Number(p.poNumber.split("-").pop())), 0);
-  return max + 1;
+  return pos.reduce((m, p) => Math.max(m, Number(p.poNumber.split("-").pop())), 88) + 1;
 }
+
+/** SKUs with an unresolved blocking or ordering gap cannot be approved */
+const orderable = (skus: Sku[], id: string) => {
+  const sku = skus.find((k) => k.id === id);
+  return !!sku && !sku.gaps.some((g) => g.severity !== "warning");
+};
 
 export const useDemandStore = create<DemandState>((set, get) => ({
   ...fresh(DEFAULT_SEED),
@@ -89,15 +122,39 @@ export const useDemandStore = create<DemandState>((set, get) => ({
   hydrateRemote: async () => {
     const res = await fetch("/api/dataset", { cache: "no-store" });
     if (!res.ok) return { source: "csv", error: `Dataset request failed (${res.status})` };
-    const json = (await res.json()) as { source: string; skus: Sku[]; distributors: Distributor[]; meta: DatasetMeta; decisions: Record<string, Decision>; error?: string };
+    const json = (await res.json()) as {
+      source: string;
+      raws: RawSku[];
+      distributors: Distributor[];
+      meta: DatasetMeta;
+      decisions: Record<string, Decision>;
+      fixes: Record<string, DataFix>;
+      error?: string;
+    };
     if (json.source !== "supabase") return { source: json.source, error: json.error };
-    // Data first, then flip `remote`, so loading saved decisions does not trigger a save back
-    set({ skus: json.skus, distributors: json.distributors, meta: json.meta, decisions: json.decisions });
+    // Data first, then flip `remote`, so loading saved decisions and fixes does not trigger a save back
+    const next = { raws: json.raws, distributors: json.distributors, meta: json.meta, fixes: json.fixes, suppliers: get().suppliers, poAdds: get().poAdds };
+    set({ ...next, skus: resolve(next), decisions: json.decisions });
     set({ remote: true });
     return { source: "supabase" };
   },
 
   reseed: (seed) => set(fresh(seed ?? get().seed + 1)),
+
+  applyFixes: (inputs, note, source = "planner") =>
+    set((s) => {
+      const at = new Date().toISOString();
+      const fixes = { ...s.fixes };
+      for (const i of inputs) fixes[fixKey(i.skuId, i.field)] = { skuId: i.skuId, field: i.field, value: i.value, note, source, at };
+      return { fixes, skus: resolve({ ...s, fixes }) };
+    }),
+
+  removeFix: (skuId, field) =>
+    set((s) => {
+      const fixes = { ...s.fixes };
+      delete fixes[fixKey(skuId, field)];
+      return { fixes, skus: resolve({ ...s, fixes }) };
+    }),
 
   setQty: (skuId, qty) =>
     set((s) => ({
@@ -108,7 +165,7 @@ export const useDemandStore = create<DemandState>((set, get) => ({
     })),
 
   approve: (skuId) =>
-    set((s) => ({ decisions: { ...s.decisions, [skuId]: { ...s.decisions[skuId], state: "approved" } } })),
+    set((s) => (orderable(s.skus, skuId) ? { decisions: { ...s.decisions, [skuId]: { ...s.decisions[skuId], state: "approved" } } } : s)),
 
   unapprove: (skuId) =>
     set((s) => ({ decisions: { ...s.decisions, [skuId]: { ...s.decisions[skuId], state: "pending" } } })),
@@ -117,14 +174,17 @@ export const useDemandStore = create<DemandState>((set, get) => ({
     set((s) => ({ decisions: { ...s.decisions, [skuId]: { ...s.decisions[skuId], state: "paused", qty: 0 } } })),
 
   override: (skuId, qty, reason) =>
-    set((s) => ({
-      decisions: { ...s.decisions, [skuId]: { state: "approved", qty: Math.max(0, Math.round(qty)), reason } },
-    })),
+    set((s) =>
+      orderable(s.skus, skuId)
+        ? { decisions: { ...s.decisions, [skuId]: { state: "approved", qty: Math.max(0, Math.round(qty)), reason } } }
+        : s
+    ),
 
   batchApprove: (items) =>
     set((s) => {
       const next = { ...s.decisions };
       for (const { id, qty } of items) {
+        if (!orderable(s.skus, id)) continue;
         const prev = next[id];
         next[id] = { ...prev, state: "approved", qty: prev?.qty ?? qty };
       }
@@ -135,7 +195,7 @@ export const useDemandStore = create<DemandState>((set, get) => ({
     const { decisions, pos, suppliers } = get();
     const approved = analyses
       .map((a) => ({ a, d: decisions[a.sku.id], qty: effectiveQty(a, decisions[a.sku.id]) }))
-      .filter((x) => x.d?.state === "approved" && x.qty > 0);
+      .filter((x) => x.d?.state === "approved" && x.qty > 0 && x.a.blockers.length === 0 && x.a.orderGaps.length === 0);
     if (!approved.length) return [];
 
     const bySupplier = new Map<string, typeof approved>();
@@ -162,40 +222,37 @@ export const useDemandStore = create<DemandState>((set, get) => ({
 
     set((s) => {
       const decisionsNext = { ...s.decisions };
-      const submittedQty = new Map(approved.map((x) => [x.a.sku.id, x.qty]));
-      for (const x of approved) decisionsNext[x.a.sku.id] = { ...decisionsNext[x.a.sku.id], state: "submitted", saving: stockoutSaving(x.a) };
-      return {
-        pos: [...created.reverse(), ...s.pos],
-        decisions: decisionsNext,
-        // In-transit stock now counts toward weeks of cover
-        skus: s.skus.map((k) => (submittedQty.has(k.id) ? { ...k, openPO: k.openPO + (submittedQty.get(k.id) ?? 0) } : k)),
-      };
+      const poAdds = { ...s.poAdds };
+      for (const x of approved) {
+        decisionsNext[x.a.sku.id] = { ...decisionsNext[x.a.sku.id], state: "submitted", saving: stockoutSaving(x.a) };
+        poAdds[x.a.sku.id] = (poAdds[x.a.sku.id] ?? 0) + x.qty;
+      }
+      // In-transit stock now counts toward weeks of cover
+      return { pos: [...created.reverse(), ...s.pos], decisions: decisionsNext, poAdds, skus: resolve({ ...s, poAdds }) };
     });
     return created;
   },
 
-  setFestivalActive: (active) => set((s) => ({ festival: { ...s.festival, active } })),
+  // Choosing is itself the confirmation when the calendar has no row for the month
+  setFestivalActive: (active) => set((s) => ({ festival: { ...s.festival, active, confirmed: true } })),
 
   setUplift: (segment, pct) => set((s) => ({ festival: { ...s.festival, uplift: { ...s.festival.uplift, [segment]: pct } } })),
 
   applyIngest: (source, fileName, patches) => {
-    const index = new Map(patches.map((p) => [p.skuId, p]));
+    const known = new Set(get().raws.map((r) => r.id));
+    const inputs: FixInput[] = [];
     let matched = 0;
-    set((s) => ({
-      skus: s.skus.map((k) => {
-        const p = index.get(k.id);
-        if (!p) return k;
-        matched++;
-        return {
-          ...k,
-          stock: p.stock ?? k.stock,
-          sales4w: p.sales4w ?? k.sales4w,
-          sales12w: p.sales12w ?? k.sales12w,
-          openPO: p.openPO ?? k.openPO,
-        };
-      }),
-      ingests: [{ source, fileName, rows: patches.length, matched, at: new Date().toISOString() }, ...s.ingests],
-    }));
+    for (const p of patches) {
+      if (!known.has(p.skuId)) continue;
+      matched++;
+      if (p.stock !== undefined) inputs.push({ skuId: p.skuId, field: "stock", value: p.stock });
+      if (p.openPO !== undefined) inputs.push({ skuId: p.skuId, field: "openPO", value: p.openPO });
+      if (p.sales4w !== undefined && p.sales12w !== undefined) {
+        inputs.push({ skuId: p.skuId, field: "avg4w", value: p.sales4w }, { skuId: p.skuId, field: "avg12w", value: p.sales12w });
+      }
+    }
+    get().applyFixes(inputs, `Imported from ${fileName}`, "import");
+    set((s) => ({ ingests: [{ source, fileName, rows: patches.length, matched, at: new Date().toISOString() }, ...s.ingests] }));
     return matched;
   },
 
@@ -208,6 +265,13 @@ export function useAnalyses(): Analysis[] {
   const skus = useDemandStore((s) => s.skus);
   const festival = useDemandStore((s) => s.festival);
   return useMemo(() => skus.map((k) => analyzeSku(k, festival)), [skus, festival]);
+}
+
+/** Dataset-wide gaps (calendar, stale sales feed) */
+export function useGlobalGaps(): GlobalGap[] {
+  const meta = useDemandStore((s) => s.meta);
+  const festival = useDemandStore((s) => s.festival);
+  return useMemo(() => globalGaps(meta, festival), [meta, festival]);
 }
 
 export interface Savings {
@@ -239,20 +303,24 @@ export function useSavings(analyses: Analysis[]): Savings {
 
 export type { PaymentStatus, ProcurementStatus };
 
-// Save planner decisions to Supabase (debounced) once the dataset came from there
+// Save planner decisions and data fixes to Supabase (debounced) once the dataset came from there
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let warned = false;
 useDemandStore.subscribe((state, prev) => {
-  if (!state.remote || state.decisions === prev.decisions) return;
+  if (!state.remote || (state.decisions === prev.decisions && state.fixes === prev.fixes)) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
-      const empty = Object.keys(state.decisions).length === 0;
-      const res = await fetch("/api/dataset", empty ? { method: "DELETE" } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decisions: useDemandStore.getState().decisions }) });
+      const { decisions, fixes } = useDemandStore.getState();
+      const res = await fetch("/api/dataset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisions, fixes }),
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       warned = false;
     } catch (err) {
-      if (!warned) toast.warning("Could not save decisions to Supabase", err instanceof Error ? err.message : undefined);
+      if (!warned) toast.warning("Could not save to Supabase", err instanceof Error ? err.message : undefined);
       warned = true;
     }
   }, 700);

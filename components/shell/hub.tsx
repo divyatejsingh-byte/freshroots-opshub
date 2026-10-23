@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   BarChart3,
   CalendarClock,
+  ClipboardEdit,
   CalendarDays,
   Database,
   HeartPulse,
@@ -22,7 +23,8 @@ import { Dialog } from "@/components/ui/overlay";
 import { toast } from "@/components/ui/toast";
 import { atRiskValue } from "@/lib/engine/heuristics";
 import { currentCycle, FESTIVALS } from "@/lib/calendar";
-import { useAnalyses, useDemandStore } from "@/lib/store";
+import { summarizeGaps } from "@/lib/data/quality";
+import { useAnalyses, useDemandStore, useGlobalGaps } from "@/lib/store";
 import { formatDate, formatInrCompact, formatNumber } from "@/lib/utils";
 
 export function Hub() {
@@ -37,6 +39,9 @@ export function Hub() {
   const cycle = useMemo(() => currentCycle(), []);
   const atRisk = useMemo(() => analyses.reduce((sum, a) => sum + atRiskValue(a), 0), [analyses]);
   const skuCount = analyses.length;
+  const skus = useDemandStore((s) => s.skus);
+  const gapSummary = useMemo(() => summarizeGaps(skus), [skus]);
+  const globals = useGlobalGaps();
 
   return (
     <div className="space-y-6">
@@ -53,6 +58,18 @@ export function Hub() {
           supplier governance in one place.
         </p>
       </section>
+
+      {(gapSummary.blockedSkus > 0 || globals.length > 0) && (
+        <Link href="/data-gaps" className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3 transition-colors hover:bg-amber-500/10">
+          <ClipboardEdit className="h-4 w-4 shrink-0 text-amber-300" />
+          <p className="min-w-0 flex-1 text-sm text-amber-100/90">
+            <span className="font-medium text-amber-200">Data gaps need your decision.</span>{" "}
+            {gapSummary.blockedSkus > 0 ? `${gapSummary.blockedSkus} of ${skuCount} SKUs are on hold (${gapSummary.totalGaps} missing items). ` : ""}
+            {globals.map((g) => g.label).join(". ")}
+          </p>
+          <span className="text-sm font-medium text-amber-200">Resolve →</span>
+        </Link>
+      )}
 
       <section className="grid gap-3 md:grid-cols-3">
         <Card className="flex items-center gap-4 p-4">

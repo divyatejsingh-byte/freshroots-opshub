@@ -1,10 +1,9 @@
-import type { PaymentStatus, ProcurementStatus, PurchaseOrder, Sku, Supplier, SupplierCategory } from "./types";
-import { addDays, isoDate } from "./utils";
+import type { Supplier, SupplierCategory } from "./types";
 
 /**
- * Sample data: the uploaded files contain no supplier master or PO history,
- * so suppliers and past POs are generated. SKUs come from lib/data/load.ts.
- * Deterministic PRNG so a given seed always yields the same dataset.
+ * Sample supplier master: the uploaded files have no vendor list, so these names and contacts are generated.
+ * Which supplier a SKU is ordered from is never assumed: a person assigns it on the Data Gaps page.
+ * Deterministic PRNG so a given seed always yields the same list.
  */
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -80,69 +79,4 @@ export function generateSuppliers(seed: number): Supplier[] {
       },
     };
   });
-}
-
-export function generatePurchaseOrders(seed: number, suppliers: Supplier[], skus: Sku[]): PurchaseOrder[] {
-  const r = mulberry32(seed + 31);
-  const now = new Date();
-  const bySupplier = new Map<string, Sku[]>();
-  for (const s of skus) bySupplier.set(s.supplierId, [...(bySupplier.get(s.supplierId) ?? []), s]);
-
-  const carriers = suppliers.filter((s) => bySupplier.has(s.id));
-  const orders: PurchaseOrder[] = [];
-  const count = 60;
-  for (let n = 0; n < count; n++) {
-    const supplier = pick(r, carriers);
-    const linked = bySupplier.get(supplier.id);
-    if (!linked?.length) continue;
-
-    const lineCount = Math.min(linked.length, 2 + Math.floor(r() * 7));
-    const used = new Set<number>();
-    const lines = [];
-    while (lines.length < lineCount) {
-      const idx = Math.floor(r() * linked.length);
-      if (used.has(idx)) continue;
-      used.add(idx);
-      const sku = linked[idx];
-      const cases = 1 + Math.floor(r() * 4);
-      lines.push({ skuId: sku.id, name: sku.name, qty: cases * sku.caseSize, unitCost: sku.unitCost });
-    }
-    const total = Math.round(lines.reduce((sum, l) => sum + l.qty * l.unitCost, 0));
-
-    const age = Math.floor(between(r, 1, 98));
-    const raised = addDays(now, -age);
-    const eta = addDays(raised, Math.floor(between(r, 7, 19)));
-
-    let procurement: ProcurementStatus;
-    if (age > 30) procurement = "Received";
-    else if (age > 18) procurement = r() < 0.6 ? "Received" : "Shipped";
-    else if (age > 8) procurement = r() < 0.5 ? "Shipped" : "Sent";
-    else procurement = r() < 0.4 ? "Draft" : "Sent";
-
-    let payment: PaymentStatus;
-    const roll = r();
-    if (procurement === "Draft") payment = "Pending Approval";
-    else if (procurement === "Received") {
-      const dueDays = supplier.paymentTerms === "Net 15" ? 15 : supplier.paymentTerms === "Net 30" ? 30 : 0;
-      if (age > dueDays + 25) payment = roll < 0.88 ? "Paid" : "Overdue";
-      else if (age > dueDays) payment = roll < 0.55 ? "Paid" : roll < 0.8 ? "Approved" : "Overdue";
-      else payment = roll < 0.5 ? "Approved" : "Pending Approval";
-    } else payment = roll < 0.6 ? "Pending Approval" : "Approved";
-
-    orders.push({
-      poNumber: "",
-      supplierId: supplier.id,
-      lines,
-      total,
-      raisedDate: isoDate(raised),
-      eta: isoDate(eta),
-      payment,
-      procurement,
-      source: "history",
-    });
-  }
-
-  orders.sort((a, b) => a.raisedDate.localeCompare(b.raisedDate));
-  orders.forEach((o, i) => (o.poNumber = `PO-2026-${String(29 + i).padStart(3, "0")}`));
-  return orders.reverse();
 }
