@@ -6,3 +6,7 @@ next-env.d.ts
 .claude
 install.log
 *.tsbuildinfo
+.vercel
+
+.vercel
+.env*
