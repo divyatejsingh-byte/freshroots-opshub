@@ -15,7 +15,9 @@ export function supabaseConfigured(): boolean {
 }
 
 function headers(extra: Record<string, string> = {}) {
-  return { apikey: key(), Authorization: `Bearer ${key()}`, ...extra };
+  // New sb_secret_ keys are not JWTs and go in `apikey` only; legacy service_role keys are JWTs and also go in Authorization
+  const legacyJwt = key().startsWith("eyJ");
+  return { apikey: key(), ...(legacyJwt ? { Authorization: `Bearer ${key()}` } : {}), ...extra };
 }
 
 type DbRow = Record<string, unknown>;

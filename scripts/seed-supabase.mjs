@@ -54,7 +54,7 @@ async function upsert(table, rows, conflict) {
     method: "POST",
     headers: {
       apikey: key,
-      Authorization: `Bearer ${key}`,
+      ...(key.startsWith("eyJ") ? { Authorization: `Bearer ${key}` } : {}),
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
